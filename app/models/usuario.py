@@ -27,3 +27,6 @@ class Usuario(Base):
     )
     ativo = Column(Boolean, nullable=False, default=True, server_default="true")
     criado_em = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # 2FA TOTP (Google Authenticator / Authy) — recomendado pra admin/professor
+    totp_secret = Column(String, nullable=True)
+    totp_enabled = Column(Boolean, nullable=False, default=False, server_default="false")

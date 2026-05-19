@@ -6,6 +6,7 @@ from app.models.usuario import RoleEnum
 class LoginRequest(BaseModel):
     username: str
     senha: str
+    totp_code: Optional[str] = None  # 6 dígitos quando o usuário tem 2FA ativado
 
 
 class TokenResponse(BaseModel):
@@ -35,6 +36,7 @@ class UsuarioResponse(BaseModel):
 
 class ForgotPasswordRequest(BaseModel):
     email: str
+    captcha_token: Optional[str] = None  # Cloudflare Turnstile, opcional se CAPTCHA desativado
 
 
 class ResetPasswordRequest(BaseModel):
@@ -54,3 +56,20 @@ class ResetPasswordRequest(BaseModel):
         if self.nova_senha != self.confirmar_senha:
             raise ValueError("Senhas não coincidem")
         return self
+
+
+# ── 2FA TOTP ─────────────────────────────────────────────────────────────────
+
+class TotpSetupResponse(BaseModel):
+    """Retornado ao iniciar setup: usuário escaneia QR no app autenticador."""
+    secret: str           # base32 (mostrar como backup caso não consiga escanear)
+    qr_data_url: str      # PNG inline pra <img src=...>
+    provisioning_uri: str # otpauth://...
+
+
+class TotpVerifyRequest(BaseModel):
+    code: str  # 6 dígitos do app
+
+
+class TotpStatusResponse(BaseModel):
+    enabled: bool

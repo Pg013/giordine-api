@@ -10,3 +10,7 @@ python-multipart
 cloudinary
 resend
 google-genai
+slowapi
+pyotp
+qrcode[pil]
+httpx

@@ -1,9 +1,15 @@
 from dotenv import load_dotenv
 load_dotenv()  # antes de qualquer import que leia os.environ
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 import os
+
+from app.utils.rate_limit import limiter
 
 from app.routers.auth import router as auth_router
 from app.routers.admin import router as admin_router
@@ -19,6 +25,11 @@ from app.routers.ranking import router as ranking_router
 from app.routers.queen import router as queen_router
 
 app = FastAPI(title="Giordine API")
+
+# Rate limiting — bloqueia abuse (DDoS, brute force, bots)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

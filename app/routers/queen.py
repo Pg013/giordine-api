@@ -1,8 +1,10 @@
 from datetime import datetime, timezone
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
+
+from app.utils.rate_limit import limiter
 
 from app.database import get_db
 from app.models.usuario import Usuario, RoleEnum
@@ -44,7 +46,9 @@ def listar_mensagens(
 
 
 @router.post("/messages", response_model=SendMessageResponse)
+@limiter.limit("20/minute;200/day")  # controla custo da IA + abuso
 def enviar_mensagem(
+    request: Request,
     body: SendMessageRequest,
     user: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
