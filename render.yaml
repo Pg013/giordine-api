@@ -25,6 +25,8 @@ services:
         sync: false
       - key: FROM_EMAIL
         value: English Hive <onboarding@resend.dev>
+      - key: LEADS_NOTIFICATION_EMAIL
+        value: gabriel121638@gmail.com
       # Queen (English coach AI)
       - key: AI_PROVIDER
         value: gemini

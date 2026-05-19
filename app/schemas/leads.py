@@ -47,6 +47,7 @@ class LeadListItem(BaseModel):
     como_conheceu: Optional[str]
     nivel_ingles: Optional[str]
     criado_em: datetime
+    atualizado_em: datetime
     aluno_id: Optional[int]
 
     model_config = {"from_attributes": True}

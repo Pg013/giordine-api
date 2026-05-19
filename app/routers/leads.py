@@ -19,7 +19,7 @@ from app.schemas.leads import (
     LeadStats,
 )
 from app.utils.security import get_password_hash, require_admin
-from app.utils.email_service import send_welcome_email
+from app.utils.email_service import send_welcome_email, send_lead_notification_email
 from app.utils.captcha import verify_turnstile, turnstile_enabled
 from app.utils.rate_limit import limiter
 
@@ -58,6 +58,14 @@ def criar_lead_publico(
     )
     db.add(lead)
     db.commit()
+    db.refresh(lead)
+
+    # Notifica admin (best-effort — não bloqueia se falhar)
+    try:
+        send_lead_notification_email(lead)
+    except Exception:
+        pass
+
     return {"ok": True}
 
 
@@ -67,13 +75,47 @@ def criar_lead_publico(
 @router.get("/admin/leads", response_model=List[LeadListItem])
 def listar_leads(
     status_filtro: Optional[str] = Query(None, alias="status"),
+    como_conheceu: Optional[str] = Query(None),
+    nivel_ingles: Optional[str] = Query(None),
+    periodo: Optional[str] = Query(None, description="hoje | 7d | 30d | all"),
+    sort_by: str = Query("criado_em", description="criado_em | atualizado_em | nome"),
+    sort_dir: str = Query("desc", description="asc | desc"),
     db: Session = Depends(get_db),
     _: Usuario = Depends(require_admin),
 ):
     q = db.query(Lead)
+
     if status_filtro and status_filtro != "all":
         q = q.filter(Lead.status == status_filtro)
-    return q.order_by(Lead.criado_em.desc()).all()
+
+    if como_conheceu and como_conheceu != "all":
+        q = q.filter(Lead.como_conheceu == como_conheceu)
+
+    if nivel_ingles and nivel_ingles != "all":
+        q = q.filter(Lead.nivel_ingles == nivel_ingles)
+
+    if periodo and periodo != "all":
+        agora = datetime.now(timezone.utc)
+        if periodo == "hoje":
+            inicio = agora.replace(hour=0, minute=0, second=0, microsecond=0)
+        elif periodo == "7d":
+            inicio = agora - timedelta(days=7)
+        elif periodo == "30d":
+            inicio = agora - timedelta(days=30)
+        else:
+            inicio = None
+        if inicio is not None:
+            q = q.filter(Lead.criado_em >= inicio)
+
+    # Ordenação
+    sort_col = {
+        "criado_em": Lead.criado_em,
+        "atualizado_em": Lead.atualizado_em,
+        "nome": Lead.nome,
+    }.get(sort_by, Lead.criado_em)
+    q = q.order_by(sort_col.desc() if sort_dir == "desc" else sort_col.asc())
+
+    return q.all()
 
 
 @router.get("/admin/leads/stats", response_model=LeadStats)

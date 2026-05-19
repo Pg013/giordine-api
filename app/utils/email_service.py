@@ -115,6 +115,67 @@ def send_welcome_email(
     return _send(to, "Acesso ao portal · English Hive", _wrap(body))
 
 
+def send_lead_notification_email(lead) -> Optional[str]:
+    """
+    Notifica o admin que um novo lead chegou pelo formulário público.
+    Destinatário: env var LEADS_NOTIFICATION_EMAIL.
+    Se não configurado, não envia (modo silencioso).
+    """
+    to = os.getenv("LEADS_NOTIFICATION_EMAIL")
+    if not to:
+        return None
+
+    HOW = {
+        "instagram": "Instagram", "whatsapp": "WhatsApp", "indicacao": "Indicação",
+        "google": "Google", "outro": "Outro",
+    }
+    LEVEL = {
+        "iniciante": "Iniciante", "basico": "Básico", "intermediario": "Intermediário",
+        "avancado": "Avançado", "nao_sei": "Não sabe dizer",
+    }
+    GOAL = {
+        "viagem": "Viagem", "trabalho": "Trabalho / carreira",
+        "estudos": "Estudos / faculdade", "conversacao": "Conversação / fluência",
+        "outro": "Outro",
+    }
+
+    rows = []
+    rows.append(f'<tr><td style="color:#8a8a9a;padding:4px 12px 4px 0;">E-mail:</td><td><a href="mailto:{lead.email}" style="color:#f3c969;text-decoration:none;">{lead.email}</a></td></tr>')
+    rows.append(f'<tr><td style="color:#8a8a9a;padding:4px 12px 4px 0;">WhatsApp:</td><td><a href="https://wa.me/55{(lead.whatsapp or "").replace(chr(40),"").replace(chr(41),"").replace(" ","").replace("-","")}" style="color:#f3c969;text-decoration:none;">{lead.whatsapp}</a></td></tr>')
+    if lead.como_conheceu:
+        rows.append(f'<tr><td style="color:#8a8a9a;padding:4px 12px 4px 0;">Conheceu por:</td><td>{HOW.get(lead.como_conheceu, lead.como_conheceu)}</td></tr>')
+    if lead.nivel_ingles:
+        rows.append(f'<tr><td style="color:#8a8a9a;padding:4px 12px 4px 0;">Nível atual:</td><td>{LEVEL.get(lead.nivel_ingles, lead.nivel_ingles)}</td></tr>')
+    if lead.objetivo:
+        rows.append(f'<tr><td style="color:#8a8a9a;padding:4px 12px 4px 0;">Objetivo:</td><td>{GOAL.get(lead.objetivo, lead.objetivo)}</td></tr>')
+    table_rows = "".join(rows)
+
+    msg_block = ""
+    if lead.mensagem:
+        msg_block = f"""
+          <p style="margin:20px 0 6px;font-size:12px;color:#8a8a9a;text-transform:uppercase;letter-spacing:0.1em;">Mensagem do lead</p>
+          <div style="padding:12px 14px;background:rgba(255,255,255,0.04);border-left:2px solid #f3c969;border-radius:4px;font-style:italic;color:#d8d4cc;">"{lead.mensagem}"</div>
+        """
+
+    panel_url = f"{_frontend_url()}/admin/leads"
+    body = f"""
+      <h1 style="font-family:'Georgia',serif;font-size:22px;color:#f0ece4;margin:0 0 6px;">🐝 Novo lead na <em style="color:#f3c969;">English Hive</em></h1>
+      <p style="color:#d8d4cc;margin:0 0 18px;"><strong style="color:#f0ece4;font-size:17px;">{lead.nome}</strong> acabou de pedir contato pelo site.</p>
+
+      <table style="border-collapse:collapse;font-size:14px;margin:0 0 4px;">
+        {table_rows}
+      </table>
+
+      {msg_block}
+
+      <p style="margin:28px 0 4px;">
+        <a href="{panel_url}" style="display:inline-block;padding:11px 22px;background:#f3c969;color:#0a0a0a;text-decoration:none;border-radius:4px;font-weight:700;letter-spacing:0.04em;">Abrir no painel</a>
+      </p>
+      <p style="color:#8a8a9a;font-size:12px;margin-top:18px;">Responde logo — leads esquecidos esfriam rápido. 🍯</p>
+    """
+    return _send(to, f"🐝 Novo lead: {lead.nome}", _wrap(body))
+
+
 def send_password_reset_email(
     to: str,
     nome: str,
