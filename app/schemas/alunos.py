@@ -1,6 +1,7 @@
 import re
-from typing import Optional
-from pydantic import BaseModel, field_validator, model_validator
+from datetime import datetime
+from typing import List, Optional
+from pydantic import BaseModel, field_validator, model_validator, ConfigDict
 
 
 class PerfilAlunoResponse(BaseModel):
@@ -68,3 +69,48 @@ class AlterarSenhaRequest(BaseModel):
 
 class AlterarFotoRequest(BaseModel):
     foto_base64: str
+
+    @field_validator("foto_base64")
+    @classmethod
+    def validar_foto(cls, v: str) -> str:
+        tipos_permitidos = ("data:image/jpeg", "data:image/png", "data:image/webp")
+        if not v.startswith(tipos_permitidos):
+            raise ValueError("Formato inválido. Use JPEG, PNG ou WebP")
+        # base64 de 5 MB ≈ 6.8 MB de string
+        if len(v) > 7_000_000:
+            raise ValueError("Imagem muito grande. Máximo 5 MB")
+        return v
+
+
+class ComunicadoAlunoItem(BaseModel):
+    id: int
+    titulo: str
+    mensagem: str
+    turma_id: Optional[int]
+    turma_nome: Optional[str]
+    criado_em: datetime
+    lido: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ComunicadosAlunoResponse(BaseModel):
+    total_nao_lidos: int
+    comunicados: List[ComunicadoAlunoItem]
+
+
+class HistoricoNivelItem(BaseModel):
+    nivel: str
+    entrada_em: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ProgressoResponse(BaseModel):
+    entrada_no_curso: datetime
+    meses_no_curso: int
+    nivel_atual: Optional[str]
+    historico_niveis: List[HistoricoNivelItem]
+    total_aulas_presentes: int
+    total_faltas: int
+    percentual_presenca: float

@@ -10,5 +10,6 @@ class Turma(Base):
     nome = Column(String, nullable=False)
     nivel = Column(String, nullable=False)
     professor_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
+    cor = Column(String(7), nullable=False, default="#3B82F6", server_default="'#3B82F6'")
     ativo = Column(Boolean, nullable=False, default=True, server_default="true")
     criado_em = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

@@ -18,6 +18,7 @@ class Usuario(Base):
     email = Column(String, unique=True, nullable=False, index=True)
     username = Column(String, unique=True, nullable=False, index=True)
     senha_hash = Column(String, nullable=False)
+    foto_url = Column(String, nullable=True)
     role = Column(
         Enum(RoleEnum, name="role_enum"),
         nullable=False,

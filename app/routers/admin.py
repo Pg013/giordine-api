@@ -1,8 +1,9 @@
 import secrets
+import calendar as cal_module
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session, aliased
 
@@ -12,6 +13,9 @@ from app.models.perfil_aluno import PerfilAluno
 from app.models.turma import Turma
 from app.models.aluno_turma import AlunoTurma
 from app.models.comunicado import Comunicado
+from app.models.refresh_token import RefreshToken
+from app.models.historico_nivel import HistoricoNivel
+from app.models.aula import Aula
 from app.schemas.admin import (
     CriarAlunoRequest,
     CriarAlunoResponse,
@@ -19,21 +23,29 @@ from app.schemas.admin import (
     TurmaInfo,
     AcessoBody,
     NivelBody,
+    CefrLevelBody,
     TurmaAlunoBody,
     CriarTurmaRequest,
+    AtualizarTurmaRequest,
     TurmaListItem,
     TurmaDetalhe,
     AlunoTurmaItem,
     ProfessorBody,
     ProfessorListItem,
+    CriarProfessorRequest,
+    CriarProfessorResponse,
     CriarComunicadoRequest,
     ComunicadoListItem,
     UltimoAlunoItem,
     ComunicadoRecenteItem,
     AcessoBloqueadoItem,
     DashboardData,
+    CriarAulaAdminRequest,
+    AtualizarAulaAdminRequest,
+    AulaAdminItem,
 )
 from app.utils.security import get_password_hash, require_admin
+from app.utils.email_service import send_welcome_email
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -81,6 +93,14 @@ def criar_aluno(
     db.add(perfil)
     db.commit()
     db.refresh(novo_usuario)
+
+    # Envia email de boas-vindas com as credenciais (best-effort — não bloqueia se falhar)
+    send_welcome_email(
+        to=novo_usuario.email,
+        nome=novo_usuario.nome,
+        username=novo_usuario.username,
+        senha_temporaria=senha_temporaria,
+    )
 
     return CriarAlunoResponse(
         id=novo_usuario.id,
@@ -143,6 +163,39 @@ def alterar_acesso(
     return {"acesso_liberado": perfil.acesso_liberado}
 
 
+@router.post("/alunos/{aluno_id}/reenviar-credenciais")
+def reenviar_credenciais(
+    aluno_id: int,
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(require_admin),
+):
+    """
+    Gera uma nova senha temporária para o aluno e reenvia por email.
+    Útil quando o aluno perdeu o email original ou esqueceu a senha
+    e o admin quer dar acesso imediato sem esperar fluxo de forgot-password.
+    """
+    aluno = db.query(Usuario).filter(Usuario.id == aluno_id, Usuario.role == RoleEnum.aluno).first()
+    if not aluno:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Aluno não encontrado")
+
+    senha_temporaria = secrets.token_urlsafe(10)
+    aluno.senha_hash = get_password_hash(senha_temporaria)
+
+    # Invalida sessões ativas
+    db.query(RefreshToken).filter(RefreshToken.usuario_id == aluno.id).delete()
+
+    db.commit()
+
+    send_welcome_email(
+        to=aluno.email,
+        nome=aluno.nome,
+        username=aluno.username,
+        senha_temporaria=senha_temporaria,
+    )
+
+    return {"email": aluno.email, "senha_temporaria": senha_temporaria}
+
+
 @router.patch("/alunos/{aluno_id}/nivel")
 def alterar_nivel(
     aluno_id: int,
@@ -158,10 +211,35 @@ def alterar_nivel(
     if not perfil:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Perfil não encontrado")
 
+    nivel_anterior = perfil.nivel
     perfil.nivel = body.nivel
     perfil.idioma_portal = _idioma_para_nivel(body.nivel)
+
+    if body.nivel != nivel_anterior:
+        db.add(HistoricoNivel(aluno_id=aluno_id, nivel=body.nivel))
+
     db.commit()
     return {"nivel": perfil.nivel, "idioma_portal": perfil.idioma_portal}
+
+
+@router.patch("/alunos/{aluno_id}/cefr-level")
+def alterar_cefr_level(
+    aluno_id: int,
+    body: CefrLevelBody,
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(require_admin),
+):
+    aluno = db.query(Usuario).filter(Usuario.id == aluno_id, Usuario.role == RoleEnum.aluno).first()
+    if not aluno:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Aluno não encontrado")
+
+    perfil = db.query(PerfilAluno).filter(PerfilAluno.usuario_id == aluno_id).first()
+    if not perfil:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Perfil não encontrado")
+
+    perfil.cefr_level = body.cefr_level
+    db.commit()
+    return {"cefr_level": perfil.cefr_level.value if perfil.cefr_level else None}
 
 
 @router.patch("/alunos/{aluno_id}/turma")
@@ -202,7 +280,7 @@ def criar_turma(
         if not prof:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Professor não encontrado")
 
-    nova_turma = Turma(nome=body.nome, nivel=body.nivel, professor_id=body.professor_id)
+    nova_turma = Turma(nome=body.nome, nivel=body.nivel, professor_id=body.professor_id, cor=body.cor)
     db.add(nova_turma)
     db.commit()
     db.refresh(nova_turma)
@@ -211,6 +289,7 @@ def criar_turma(
         id=nova_turma.id,
         nome=nova_turma.nome,
         nivel=nova_turma.nivel,
+        cor=nova_turma.cor,
         professor_id=nova_turma.professor_id,
         professor_nome=prof.nome if body.professor_id is not None else None,
         ativo=nova_turma.ativo,
@@ -242,6 +321,7 @@ def listar_turmas(
             id=turma.id,
             nome=turma.nome,
             nivel=turma.nivel,
+            cor=turma.cor,
             professor_id=turma.professor_id,
             professor_nome=professor_nome,
             ativo=turma.ativo,
@@ -287,6 +367,7 @@ def get_turma(
         id=turma.id,
         nome=turma.nome,
         nivel=turma.nivel,
+        cor=turma.cor,
         ativo=turma.ativo,
         professor_id=turma.professor_id,
         professor_nome=professor.nome if professor else None,
@@ -310,6 +391,57 @@ def remover_aluno_turma(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Aluno não está nesta turma")
     db.delete(entry)
     db.commit()
+
+
+@router.patch("/turmas/{turma_id}", response_model=TurmaListItem)
+def atualizar_turma(
+    turma_id: int,
+    body: AtualizarTurmaRequest,
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(require_admin),
+):
+    turma = db.query(Turma).filter(Turma.id == turma_id).first()
+    if not turma:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Turma não encontrada")
+
+    if body.professor_id is not None:
+        prof = db.query(Usuario).filter(
+            Usuario.id == body.professor_id,
+            Usuario.role.in_([RoleEnum.professor, RoleEnum.admin]),
+        ).first()
+        if not prof:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Professor não encontrado")
+
+    if body.nome is not None:
+        turma.nome = body.nome
+    if body.nivel is not None:
+        turma.nivel = body.nivel
+    if body.cor is not None:
+        turma.cor = body.cor
+    if body.professor_id is not None:
+        turma.professor_id = body.professor_id
+    if body.ativo is not None:
+        turma.ativo = body.ativo
+
+    db.commit()
+    db.refresh(turma)
+
+    qtd = db.query(func.count(AlunoTurma.aluno_id)).filter(AlunoTurma.turma_id == turma_id).scalar() or 0
+    professor_nome = None
+    if turma.professor_id:
+        p = db.query(Usuario.nome).filter(Usuario.id == turma.professor_id).first()
+        professor_nome = p.nome if p else None
+
+    return TurmaListItem(
+        id=turma.id,
+        nome=turma.nome,
+        nivel=turma.nivel,
+        cor=turma.cor,
+        professor_id=turma.professor_id,
+        professor_nome=professor_nome,
+        ativo=turma.ativo,
+        qtd_alunos=qtd,
+    )
 
 
 @router.patch("/turmas/{turma_id}/professor")
@@ -336,6 +468,39 @@ def atribuir_professor(
 
 
 # ── Professores ─────────────────────────────────────────────────────────────
+
+
+@router.post("/professores", response_model=CriarProfessorResponse, status_code=status.HTTP_201_CREATED)
+def criar_professor(
+    body: CriarProfessorRequest,
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(require_admin),
+):
+    if db.query(Usuario).filter(Usuario.email == body.email).first():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="E-mail já cadastrado")
+    if db.query(Usuario).filter(Usuario.username == body.username).first():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username já cadastrado")
+
+    senha_temporaria = secrets.token_urlsafe(10)
+    novo = Usuario(
+        nome=body.nome,
+        email=body.email,
+        username=body.username,
+        senha_hash=get_password_hash(senha_temporaria),
+        role=RoleEnum.professor,
+        ativo=True,
+    )
+    db.add(novo)
+    db.commit()
+    db.refresh(novo)
+
+    return CriarProfessorResponse(
+        id=novo.id,
+        nome=novo.nome,
+        username=novo.username,
+        email=novo.email,
+        senha_temporaria=senha_temporaria,
+    )
 
 
 @router.get("/professores", response_model=List[ProfessorListItem])
@@ -395,6 +560,148 @@ def deletar_comunicado(
     if not comunicado:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comunicado não encontrado")
     db.delete(comunicado)
+    db.commit()
+
+
+# ── Calendário / Aulas (visão admin) ────────────────────────────────────────
+
+
+def _build_aula_item(aula: Aula, turmas: dict, professores: dict) -> AulaAdminItem:
+    turma = turmas.get(aula.turma_id)
+    return AulaAdminItem(
+        id=aula.id,
+        turma_id=aula.turma_id,
+        turma_nome=turma.nome if turma else None,
+        turma_cor=turma.cor if turma else None,
+        professor_id=aula.professor_id,
+        professor_nome=professores.get(aula.professor_id),
+        titulo=aula.titulo,
+        descricao=aula.descricao,
+        data_hora=aula.data_hora,
+        duracao_min=aula.duracao_min,
+        link_aula=aula.link_aula,
+        serie_id=aula.serie_id,
+        criado_em=aula.criado_em,
+    )
+
+
+@router.get("/calendario", response_model=List[AulaAdminItem])
+def get_calendario_admin(
+    mes: str = Query(..., description="YYYY-MM"),
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(require_admin),
+):
+    try:
+        year, month = int(mes[:4]), int(mes[5:7])
+    except (ValueError, IndexError):
+        raise HTTPException(status_code=400, detail="Formato inválido. Use YYYY-MM")
+
+    inicio = datetime(year, month, 1, tzinfo=timezone.utc)
+    last_day = cal_module.monthrange(year, month)[1]
+    fim = datetime(year, month, last_day, 23, 59, 59, tzinfo=timezone.utc)
+
+    aulas = (
+        db.query(Aula)
+        .filter(Aula.data_hora >= inicio, Aula.data_hora <= fim)
+        .order_by(Aula.data_hora)
+        .all()
+    )
+
+    turma_ids = {a.turma_id for a in aulas if a.turma_id}
+    prof_ids = {a.professor_id for a in aulas if a.professor_id}
+    turmas = {t.id: t for t in db.query(Turma).filter(Turma.id.in_(turma_ids)).all()} if turma_ids else {}
+    professores = {u.id: u.nome for u in db.query(Usuario).filter(Usuario.id.in_(prof_ids)).all()} if prof_ids else {}
+
+    return [_build_aula_item(a, turmas, professores) for a in aulas]
+
+
+@router.post("/aulas", response_model=AulaAdminItem, status_code=status.HTTP_201_CREATED)
+def criar_aula_admin(
+    body: CriarAulaAdminRequest,
+    db: Session = Depends(get_db),
+    admin: Usuario = Depends(require_admin),
+):
+    if body.turma_id:
+        if not db.query(Turma).filter(Turma.id == body.turma_id).first():
+            raise HTTPException(status_code=404, detail="Turma não encontrada")
+    if body.professor_id:
+        if not db.query(Usuario).filter(Usuario.id == body.professor_id, Usuario.role.in_([RoleEnum.professor, RoleEnum.admin])).first():
+            raise HTTPException(status_code=404, detail="Professor não encontrado")
+
+    aula = Aula(
+        turma_id=body.turma_id,
+        professor_id=body.professor_id,
+        titulo=body.titulo,
+        descricao=body.descricao,
+        data_hora=body.data_hora,
+        duracao_min=body.duracao_min,
+        link_aula=body.link_aula,
+    )
+    db.add(aula)
+    db.commit()
+    db.refresh(aula)
+
+    turmas = {aula.turma_id: db.query(Turma).filter(Turma.id == aula.turma_id).first()} if aula.turma_id else {}
+    professores = {aula.professor_id: db.query(Usuario.nome).filter(Usuario.id == aula.professor_id).scalar()} if aula.professor_id else {}
+    return _build_aula_item(aula, turmas, professores)
+
+
+@router.patch("/aulas/{aula_id}", response_model=AulaAdminItem)
+def atualizar_aula_admin(
+    aula_id: int,
+    body: AtualizarAulaAdminRequest,
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(require_admin),
+):
+    aula = db.query(Aula).filter(Aula.id == aula_id).first()
+    if not aula:
+        raise HTTPException(status_code=404, detail="Aula não encontrada")
+
+    if body.turma_id is not None:
+        aula.turma_id = body.turma_id
+    if body.professor_id is not None:
+        aula.professor_id = body.professor_id
+    if body.titulo is not None:
+        aula.titulo = body.titulo
+    if body.descricao is not None:
+        aula.descricao = body.descricao
+    if body.data_hora is not None:
+        aula.data_hora = body.data_hora
+    if body.duracao_min is not None:
+        aula.duracao_min = body.duracao_min
+    if body.link_aula is not None:
+        aula.link_aula = body.link_aula
+
+    db.commit()
+    db.refresh(aula)
+
+    turmas = {aula.turma_id: db.query(Turma).filter(Turma.id == aula.turma_id).first()} if aula.turma_id else {}
+    professores = {aula.professor_id: db.query(Usuario.nome).filter(Usuario.id == aula.professor_id).scalar()} if aula.professor_id else {}
+    return _build_aula_item(aula, turmas, professores)
+
+
+@router.delete("/aulas/{aula_id}", status_code=status.HTTP_204_NO_CONTENT)
+def deletar_aula_admin(
+    aula_id: int,
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(require_admin),
+):
+    aula = db.query(Aula).filter(Aula.id == aula_id).first()
+    if not aula:
+        raise HTTPException(status_code=404, detail="Aula não encontrada")
+    db.delete(aula)
+    db.commit()
+
+
+@router.delete("/aulas/serie/{serie_id}", status_code=status.HTTP_204_NO_CONTENT)
+def deletar_serie_admin(
+    serie_id: str,
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(require_admin),
+):
+    deletadas = db.query(Aula).filter(Aula.serie_id == serie_id).delete()
+    if deletadas == 0:
+        raise HTTPException(status_code=404, detail="Série não encontrada")
     db.commit()
 
 

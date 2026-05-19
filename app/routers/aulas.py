@@ -95,6 +95,13 @@ def confirmar_presenca(
     if not aula:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Aula não encontrada")
 
+    pertence = db.query(AlunoTurma).filter(
+        AlunoTurma.aluno_id == user.id,
+        AlunoTurma.turma_id == aula.turma_id,
+    ).first()
+    if not pertence:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Você não pertence à turma desta aula")
+
     presenca = db.query(Presenca).filter(
         Presenca.aula_id == aula_id,
         Presenca.aluno_id == user.id,

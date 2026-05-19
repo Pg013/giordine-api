@@ -14,4 +14,5 @@ class Aula(Base):
     data_hora = Column(DateTime(timezone=True), nullable=False)
     duracao_min = Column(Integer, nullable=False, default=60, server_default="60")
     link_aula = Column(String, nullable=True)  # INCERTO — Meet, Zoom ou outro
+    serie_id = Column(String(36), nullable=True, index=True)
     criado_em = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

@@ -2,7 +2,7 @@ services:
   - type: web
     name: giordine-api
     env: python
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && alembic upgrade head
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_URL
@@ -17,3 +17,18 @@ services:
         value: 7
       - key: FRONTEND_URL
         sync: false
+      # Cloudinary (upload de fotos)
+      - key: CLOUDINARY_URL
+        sync: false
+      # Resend (email transacional — welcome, reset)
+      - key: RESEND_API_KEY
+        sync: false
+      - key: FROM_EMAIL
+        value: English Hive <onboarding@resend.dev>
+      # Queen (English coach AI)
+      - key: AI_PROVIDER
+        value: gemini
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: QUEEN_MODEL
+        value: gemini-2.5-flash

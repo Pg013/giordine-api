@@ -79,3 +79,17 @@ def require_admin(user=Depends(get_current_user)):
     if user.role != RoleEnum.admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso restrito a administradores")
     return user
+
+
+def require_professor_or_admin(user=Depends(get_current_user)):
+    from app.models.usuario import RoleEnum
+    if user.role not in (RoleEnum.professor, RoleEnum.admin):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso restrito a professores")
+    return user
+
+
+def require_aluno(user=Depends(get_current_user)):
+    from app.models.usuario import RoleEnum
+    if user.role != RoleEnum.aluno:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso restrito a alunos")
+    return user

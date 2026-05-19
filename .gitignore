@@ -21,3 +21,10 @@ alembic/versions/*.pyc
 # OS
 .DS_Store
 Thumbs.db
+
+# Claude Code (sessão local)
+.claude/
+
+# Logs locais
+*.log
+queen_errors.log
