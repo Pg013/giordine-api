@@ -14,6 +14,7 @@ from app.models.mensagem import Mensagem
 from app.models.password_reset_token import PasswordResetToken
 from app.models.queen_message import QueenMessage
 from app.models.queen_training_note import QueenTrainingNote
+from app.models.lead import Lead, LeadStatus
 from app.models.tarefa_cefr_level import TarefaCefrLevel
 from app.models.tarefa_turma import TarefaTurma
 from app.models.submissao import Submissao, StatusSubmissao
@@ -27,6 +28,7 @@ __all__ = [
     "Aula", "Presenca", "AulaExtra",
     "HistoricoNivel", "Mensagem", "PasswordResetToken",
     "QueenMessage", "QueenTrainingNote",
+    "Lead", "LeadStatus",
     "Tarefa", "CategoriaTarefa", "StatusTarefa", "CefrLevel",
     "TarefaCefrLevel", "TarefaTurma",
     "Submissao", "StatusSubmissao", "RascunhoSubmissao",

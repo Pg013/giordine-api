@@ -23,6 +23,7 @@ from app.routers.alunos_tarefas import router as alunos_tarefas_router
 from app.routers.correcoes import router as correcoes_router
 from app.routers.ranking import router as ranking_router
 from app.routers.queen import router as queen_router
+from app.routers.leads import router as leads_router
 
 app = FastAPI(title="Giordine API")
 
@@ -52,6 +53,7 @@ app.include_router(alunos_tarefas_router)
 app.include_router(correcoes_router)
 app.include_router(ranking_router)
 app.include_router(queen_router)
+app.include_router(leads_router)
 
 
 @app.get("/")
